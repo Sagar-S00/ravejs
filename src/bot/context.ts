@@ -12,6 +12,8 @@ export class CommandContext {
   sender: string;
   messageId: string;
   rawMessage: string;
+  senderUserId?: number;
+  userMetas: Record<string, any>[];
 
   constructor(
     bot: RaveBot,
@@ -26,6 +28,34 @@ export class CommandContext {
     this.sender = messageData?.data?.from || "unknown";
     this.messageId = messageData?.data?.id || "";
     this.rawMessage = messageData?.data?.chat || "";
+    
+    // Extract user ID from sender peer ID (format: {userId}_{uuid})
+    try {
+      if (this.sender && this.sender !== "unknown") {
+        const parts = this.sender.split('_');
+        if (parts.length > 0) {
+          const userId = parseInt(parts[0], 10);
+          if (!isNaN(userId)) {
+            this.senderUserId = userId;
+          }
+        }
+      }
+    } catch {
+      this.senderUserId = undefined;
+    }
+    
+    // Extract user metas from message data
+    this.userMetas = messageData?.data?.user_metas || messageData?.user_metas || [];
+  }
+  
+  /**
+   * Get message object (for backward compatibility with admin commands)
+   */
+  get message() {
+    return {
+      senderUserId: this.senderUserId,
+      userMetas: this.userMetas
+    };
   }
 
   async reply(text: string): Promise<void> {

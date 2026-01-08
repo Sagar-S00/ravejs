@@ -8,6 +8,7 @@ import { CommandContext } from './context';
 import { StateMessageModel, UserStateModel } from '../models/state';
 import { RaveAPIClient } from '../api/client';
 import { getMeshInfo, getUsersList, leaveMesh } from '../utils/helpers';
+import { permissionManager } from './permissions';
 
 export type CommandHandler = (ctx: CommandContext) => Promise<void> | void;
 export type EventHandler = (...args: any[]) => Promise<void> | void;
@@ -221,6 +222,115 @@ export class RaveBot {
         `Room ID: \`${this.roomId.substring(0, 8)}...\`\n` +
         `Commands: \`${this.commands.size}\``;
       await ctx.reply(info);
+    });
+
+    this.command("relogin", async (ctx) => {
+      /**Relogin and update credentials*/
+      await ctx.reply("🔄 Starting relogin process... Please check your email for the magic link.");
+
+      try {
+        // Load credentials to get email
+        const { loadCredentials } = await import('../auth/credentials');
+        const { updateCredentials } = await import('../auth/sync');
+        const credentials = await loadCredentials();
+
+        if (!credentials || !credentials.email) {
+          await ctx.reply("❌ No credentials found. Cannot relogin.");
+          return;
+        }
+
+        // Perform login
+        const { RaveLogin } = await import('../auth/login');
+        const loginClient = new RaveLogin(credentials.email, credentials.deviceId, credentials.ssaid);
+        const loginResult = await loginClient.login(true);
+
+        // Strip "r: " prefix from tokens before saving
+        const stripPrefix = (token?: string) => token?.startsWith('r: ') ? token.substring(3) : token;
+
+        // Prepare new credentials with stripped tokens
+        const newCredentials = {
+          email: credentials.email,
+          deviceId: loginResult.deviceId,
+          ssaid: loginResult.ssaid,
+          parseId: loginResult.parseId,
+          parseToken: stripPrefix(loginResult.parseToken),
+          authToken: stripPrefix(loginResult.authToken || loginResult.parseToken),
+          userId: loginResult.userId,
+          peerId: loginResult.peerId
+        };
+
+        // Save to both MongoDB and JSON
+        await updateCredentials(newCredentials);
+
+        // Update bot's authToken immediately (no restart needed)
+        this.authToken = newCredentials.authToken || '';
+
+        // Update WebSocket client's authToken if connected
+        if (this.client && typeof (this.client as any).updateAuthToken === 'function') {
+          (this.client as any).updateAuthToken(this.authToken);
+        } else if (this.client) {
+          (this.client as any).authToken = this.authToken;
+        }
+
+        // If in a worker process, notify parent to refresh credentials in all workers
+        if (process.send) {
+          const { createEvent } = await import('../process/ipc');
+          process.send(createEvent({
+            type: 'credentials_updated',
+            credentials: {
+              email: newCredentials.email,
+              deviceId: newCredentials.deviceId,
+              ssaid: newCredentials.ssaid,
+              parseId: newCredentials.parseId,
+              parseToken: newCredentials.parseToken,
+              authToken: newCredentials.authToken || '',
+              userId: newCredentials.userId,
+              peerId: newCredentials.peerId || ''
+            }
+          }));
+        }
+
+        await ctx.reply("✅ Relogin successful! New credentials saved and active. All bots will use new credentials automatically.");
+      } catch (error: any) {
+        console.error("Relogin error:", error);
+        await ctx.reply(`❌ Relogin failed: ${error.message}`);
+      }
+    });
+
+    this.command("leave", async (ctx) => {
+      /**Leave the mesh and close the process*/
+      await ctx.reply("👋 Leaving mesh... Goodbye!");
+
+      try {
+        // Create API client with auth token
+        const apiClient = new RaveAPIClient("https://api.red.wemesh.ca", this.authToken);
+
+        // Leave the mesh via API
+        await leaveMesh(this.roomId, this.deviceId, apiClient);
+
+        // Disconnect WebSocket
+        if (this.client) {
+          await this.client.disconnect(1000, "User requested leave");
+        }
+
+        // If running in a worker process, notify parent and exit
+        if (process.send) {
+          const { createEvent } = await import('../process/ipc');
+          // Notify parent this is an intentional leave, not a crash
+          process.send(createEvent({
+            type: 'intentional_leave',
+            meshId: this.roomId
+          }));
+
+          // Give time for the event to be sent and goodbye message to go through
+          setTimeout(() => {
+            process.exit(0);
+          }, 1000);
+        }
+      } catch (error: any) {
+        console.error("Leave error:", error);
+        await ctx.reply(`❌ Failed to leave: ${error.message}`);
+      }
     });
   }
 
@@ -462,6 +572,22 @@ export class RaveBot {
           return;
         }
 
+        // Extract user ID from sender peer_id (format: {userId}_{uuid})
+        let userId: number | undefined;
+        try {
+          if (sender) {
+            const parts = sender.split('_');
+            if (parts.length > 0) {
+              userId = parseInt(parts[0], 10);
+              if (isNaN(userId)) {
+                userId = undefined;
+              }
+            }
+          }
+        } catch {
+          userId = undefined;
+        }
+
         // Parse command
         const parsed = this._parseCommand(chatText);
         if (parsed) {
@@ -473,6 +599,13 @@ export class RaveBot {
             // Create context
             const ctx = new CommandContext(this, data, commandName, args);
 
+            // Check permissions before executing command
+            const canExecute = await permissionManager.canExecuteCommand(userId || 0, commandName);
+            if (!canExecute) {
+              await ctx.reply(`❌ You don't have permission to use this command. This command requires admin access.`);
+              return;
+            }
+
             // Execute command
             try {
               await commandHandler(ctx);
@@ -483,22 +616,6 @@ export class RaveBot {
           }
         } else {
           // Not a command - fire on_message event
-          // Extract user ID from sender peer_id (format: {userId}_{uuid})
-          let userId: number | undefined;
-          try {
-            if (sender) {
-              const parts = sender.split('_');
-              if (parts.length > 0) {
-                userId = parseInt(parts[0], 10);
-                if (isNaN(userId)) {
-                  userId = undefined;
-                }
-              }
-            }
-          } catch {
-            userId = undefined;
-          }
-
           // Get user display name from cache or fetch
           const userName = await this._getUserDisplayName(userId);
 
@@ -521,7 +638,7 @@ export class RaveBot {
               }
             );
           }
-          
+
           if (this.debug && userMetas.length > 0) {
             console.log(`Mention check: botUserId=${this.botUserId}, userMetas=${JSON.stringify(userMetas)}, isMentioned=${isMentioned}`);
           }
@@ -572,13 +689,13 @@ export class RaveBot {
           if (isMentioned || isReplyToBot) {
             try {
               const { addUserMessage, getResponse } = await import('../utils/cloudflare_ai');
-              
+
               // Add user message to thread
               addUserMessage(this.roomId, userName, chatText);
-              
+
               // Get AI response
               const aiResponse = await getResponse(this.roomId);
-              
+
               if (aiResponse && aiResponse.trim()) {
                 await this.sendMessage(aiResponse, messageId);
               }

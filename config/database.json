@@ -1,0 +1,9 @@
+{
+  "uri": "mongodb+srv://raku:raku1234@cluster0.7dhk4es.mongodb.net/?retryWrites=true&w=majority",
+  "options": {
+    "maxPoolSize": 10,
+    "minPoolSize": 2,
+    "serverSelectionTimeoutMS": 5000,
+    "socketTimeoutMS": 45000
+  }
+}

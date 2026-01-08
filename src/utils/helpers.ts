@@ -231,6 +231,10 @@ export async function getInvitedMeshes(
 /**
  * Leave a mesh
  * 
+ * This function performs two operations:
+ * 1. Deletes the invite from the mesh (DELETE /meshes/{mesh-id}/invites)
+ * 2. Leaves the mesh (DELETE /meshes/{mesh-id}/devices/{device-id}/leave)
+ * 
  * @param meshId - Mesh ID to leave
  * @param deviceId - Device ID (required)
  * @param apiClient - Optional API client instance (uses default if not provided)
@@ -242,11 +246,25 @@ export async function leaveMesh(
   apiClient?: RaveAPIClient
 ): Promise<boolean> {
   const client = apiClient || getDefaultApiClient();
-  const response = await client.delete(`/meshes/${meshId}/devices/${deviceId}/leave`);
-  if (response.status === 200) {
-    return true;
-  } else {
-    console.warn(`Failed to leave mesh ${meshId}: ${response.status}`);
+
+  try {
+    // Step 1: Delete the invite first
+    const deleteInviteResponse = await client.delete(`/meshes/${meshId}/invites`);
+    if (deleteInviteResponse.status !== 200 && deleteInviteResponse.status !== 204) {
+      console.warn(`Failed to delete invite from mesh ${meshId}: ${deleteInviteResponse.status}`);
+      // Continue with leave even if invite deletion fails
+    }
+
+    // Step 2: Leave the mesh
+    const leaveResponse = await client.delete(`/meshes/${meshId}/devices/${deviceId}/leave`);
+    if (leaveResponse.status === 200 || leaveResponse.status === 204) {
+      return true;
+    } else {
+      console.warn(`Failed to leave mesh ${meshId}: ${leaveResponse.status}`);
+      return false;
+    }
+  } catch (error: any) {
+    console.error(`Error leaving mesh ${meshId}:`, error);
     return false;
   }
 }
@@ -297,27 +315,27 @@ export async function uploadMedia(
   thumbnailUrl: string;
 }>> {
   const client = apiClient || getDefaultApiClient();
-  
+
   // Step 1: Prepare upload request
   const mediaItems = mediaFiles.map((filePath, index) => ({
     index: index,
     mime: detectMimeType(filePath),
     isExplicit: isExplicit
   }));
-  
+
   const uploadRequest = {
     media: mediaItems
   };
-  
+
   // Step 2: Request upload URLs
   const response = await client.post(`/meshes/${meshId}/images/upload`, uploadRequest);
-  
+
   if (response.status !== 200) {
     throw new Error(`Failed to get upload URLs: ${response.status} - ${JSON.stringify(response.data)}`);
   }
-  
+
   const responseData = response.data?.data || [];
-  
+
   // Step 3: Upload each file to S3
   const postingUrls: Array<{
     url: string;
@@ -326,20 +344,20 @@ export async function uploadMedia(
     aspectRatio: string;
     thumbnailUrl: string;
   }> = [];
-  
+
   for (const uploadItem of responseData) {
     // Find the corresponding file
     const fileIndex = uploadItem.index;
     const filePath = mediaFiles[fileIndex];
-    
+
     if (!filePath) {
       console.warn(`No file found for index ${fileIndex}`);
       continue;
     }
-    
+
     // Read file content
     const fileContent = fs.readFileSync(filePath);
-    
+
     // Upload to S3 using PUT request
     const uploadResponse = await axios.put(
       uploadItem.uploadUrl,
@@ -351,13 +369,13 @@ export async function uploadMedia(
         timeout: 30000
       }
     );
-    
+
     if (uploadResponse.status !== 200 && uploadResponse.status !== 204) {
       throw new Error(
         `Failed to upload file ${fileIndex} to S3: ${uploadResponse.status} - ${JSON.stringify(uploadResponse.data)}`
       );
     }
-    
+
     // Prepare media info for chat message
     const mediaInfo = {
       url: uploadItem.postingUrl,
@@ -366,10 +384,10 @@ export async function uploadMedia(
       aspectRatio: "", // May need to be calculated from image/video dimensions
       thumbnailUrl: "" // May be provided for videos, empty for images
     };
-    
+
     postingUrls.push(mediaInfo);
   }
-  
+
   return postingUrls;
 }
 

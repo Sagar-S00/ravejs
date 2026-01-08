@@ -100,6 +100,17 @@ export class RaveAPIClient {
   }
 
   /**
+   * Strip "r:" prefix from token if present
+   * Parse tokens may have "r:" prefix that needs to be removed for API usage
+   * 
+   * @param token - Token string (may have "r:" prefix)
+   * @returns Token without "r:" prefix
+   */
+  private normalizeToken(token: string): string {
+    return token.startsWith("r:") ? token.substring(2) : token;
+  }
+
+  /**
    * Build request headers with automatic hash generation
    * 
    * @param method - HTTP method (GET, POST, DELETE, etc.)
@@ -123,14 +134,17 @@ export class RaveAPIClient {
       }
     }
 
-    // Generate timestamp and hash
+    // Normalize token (remove "r:" prefix if present)
+    const normalizedToken = this.normalizeToken(this.authToken);
+
+    // Generate timestamp and hash (use normalized token for hash)
     const timestamp = this.generateTimestamp();
-    const requestHash = this.generateRequestHash(timestamp, this.authToken, contentLength);
+    const requestHash = this.generateRequestHash(timestamp, normalizedToken, contentLength);
 
     // Extract host from base URL
     const host = this.baseUrl.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
 
-    // Build base headers
+    // Build base headers (use normalized token in Authorization header)
     const headers: Record<string, string> = {
       "Host": host,
       "Client-Version": this.clientVersion,
@@ -138,7 +152,7 @@ export class RaveAPIClient {
       "Wemesh-Platform": this.platform,
       "User-Agent": this.userAgent,
       "Ssaid": this.ssaid,
-      "Authorization": `Bearer ${this.authToken}`,
+      "Authorization": `Bearer ${normalizedToken}`,
       "Request-Hash": requestHash,
       "Request-Ts": String(timestamp),
       "Accept-Encoding": "gzip, deflate, br"

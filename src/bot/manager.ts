@@ -72,6 +72,7 @@ export class BotManager {
   private emptyCheckIntervalId?: NodeJS.Timeout;
   private limit: number = 20;
   private lang: string = "en";
+  private credentialsPath?: string;
 
   constructor(
     deviceId: string,
@@ -84,7 +85,8 @@ export class BotManager {
     retryInitialBackoff: number = 1.0,
     retryMaxBackoff: number = 60.0,
     discoveryInterval: number = 60.0,
-    meshMode: string = "invited"
+    meshMode: string = "invited",
+    credentialsPath?: string
   ) {
     /**
      * Initialize Bot Manager
@@ -100,6 +102,7 @@ export class BotManager {
      * @param retryMaxBackoff - Maximum retry backoff in seconds (default: 60.0)
      * @param discoveryInterval - Interval in seconds to check for new/removed meshes (default: 60.0)
      * @param meshMode - "invited" for only invited meshes, "all" for public + friends + invited (default: "invited")
+     * @param credentialsPath - Optional path to credentials file
      */
     this.deviceId = deviceId;
     this.peerId = peerId;
@@ -112,6 +115,126 @@ export class BotManager {
     this.retryMaxBackoff = retryMaxBackoff;
     this.discoveryInterval = discoveryInterval;
     this.meshMode = meshMode;
+    this.credentialsPath = credentialsPath;
+  }
+
+  /**
+   * Load credentials from file and update manager
+   * 
+   * @param credentialsPath - Optional path to credentials file (uses default if not provided)
+   * @returns True if credentials were loaded, false otherwise
+   */
+  async loadCredentials(credentialsPath?: string): Promise<boolean> {
+    try {
+      const { loadCredentials } = await import('../auth/credentials');
+      const path = credentialsPath || this.credentialsPath;
+      const credentials = await loadCredentials(path);
+      
+      if (credentials) {
+        this.deviceId = credentials.deviceId;
+        this.peerId = credentials.peerId || this.peerId;
+        this.authToken = credentials.authToken || credentials.parseToken || this.authToken;
+        this.apiClient = new RaveAPIClient("https://api.red.wemesh.ca", this.authToken);
+        return true;
+      }
+      
+      return false;
+    } catch (error: any) {
+      console.error(`Error loading credentials: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Relogin and update all bots with new credentials
+   * 
+   * This will:
+   * 1. Load email from saved credentials
+   * 2. Perform complete login flow
+   * 3. Save new credentials
+   * 4. Update manager's deviceId, peerId, and authToken
+   * 5. Recreate all bot instances with new credentials
+   */
+  async relogin(): Promise<void> {
+    try {
+      // Load credentials to get email
+      const { loadCredentials, saveCredentials } = await import('../auth/credentials');
+      const path = this.credentialsPath;
+      const credentials = await loadCredentials(path);
+      
+      if (!credentials || !credentials.email) {
+        throw new Error("No credentials found. Cannot relogin.");
+      }
+      
+      console.log(`[Relogin] Starting relogin for ${credentials.email}...`);
+      
+      // Perform login
+      const { RaveLogin } = await import('../auth/login');
+      const loginClient = new RaveLogin(credentials.email, credentials.deviceId, credentials.ssaid);
+      const loginResult = await loginClient.login(true);
+      
+      // Save new credentials
+      const newCredentials = {
+        email: credentials.email,
+        deviceId: loginResult.deviceId,
+        ssaid: loginResult.ssaid,
+        parseId: loginResult.parseId,
+        parseToken: loginResult.parseToken,
+        authToken: loginResult.authToken,
+        userId: loginResult.userId,
+        peerId: loginResult.peerId
+      };
+      
+      await saveCredentials(newCredentials, path);
+      console.log(`[Relogin] New credentials saved.`);
+      
+      // Update manager properties
+      this.deviceId = loginResult.deviceId;
+      this.peerId = loginResult.peerId || this.peerId;
+      this.authToken = loginResult.authToken || loginResult.parseToken;
+      this.apiClient = new RaveAPIClient("https://api.red.wemesh.ca", this.authToken);
+      
+      console.log(`[Relogin] Manager credentials updated.`);
+      
+      // Recreate all bot instances with new credentials
+      const meshIds = Array.from(this.bots.keys());
+      for (const meshId of meshIds) {
+        const botInfo = this.bots.get(meshId);
+        if (!botInfo) continue;
+        
+        // Stop old bot
+        if (botInfo.bot && botInfo.bot.client) {
+          try {
+            await botInfo.bot.client.disconnect();
+          } catch (error: any) {
+            // Ignore disconnect errors
+          }
+        }
+        
+        // Cancel monitor interval
+        if (botInfo.monitorInterval) {
+          clearInterval(botInfo.monitorInterval);
+          botInfo.monitorInterval = undefined;
+        }
+        
+        // Update bot info
+        botInfo.bot = undefined;
+        botInfo.state = BotState.INITIALIZING;
+        botInfo.retryCount = 0;
+        
+        // Start bot with new credentials
+        try {
+          await this._startBot(botInfo);
+        } catch (error: any) {
+          console.error(`[Relogin] Error restarting bot for mesh ${meshId}:`, error);
+        }
+      }
+      
+      console.log(`[Relogin] All bots updated with new credentials.`);
+    } catch (error: any) {
+      console.error(`[Relogin] Error during relogin:`, error);
+      throw error;
+    }
   }
 
   async fetchMeshes(limit: number = 20, lang: string = "en"): Promise<Record<string, any>[]> {
@@ -190,6 +313,17 @@ export class BotManager {
     }
 
     return bot;
+  }
+
+  /**
+   * Update bot credentials (used after relogin)
+   * Updates deviceId, peerId, and authToken for all bots
+   */
+  updateBotCredentials(deviceId: string, peerId: string, authToken: string): void {
+    this.deviceId = deviceId;
+    this.peerId = peerId;
+    this.authToken = authToken;
+    this.apiClient = new RaveAPIClient("https://api.red.wemesh.ca", authToken);
   }
 
   private async _startBot(botInfo: BotInfo): Promise<void> {

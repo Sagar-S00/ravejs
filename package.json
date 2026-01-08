@@ -5,8 +5,8 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "npx tsc",
+    "dev": "npx tsc --watch",
     "prepublishOnly": "npm run build",
     "start": "npx ts-node examples/multi-mesh-bot.ts"
   },
@@ -21,7 +21,8 @@
   "dependencies": {
     "ws": "^8.14.2",
     "axios": "^1.6.0",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "mongodb": "^6.3.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",

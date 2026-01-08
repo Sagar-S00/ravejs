@@ -97,6 +97,16 @@ export class RaveWebSocketClient {
     this.onError = onError;
   }
 
+  /**
+   * Update auth token (for credential refresh without restart)
+   */
+  updateAuthToken(authToken: string): void {
+    this.authToken = authToken;
+    if (this.debug) {
+      console.log('[WebSocket] Auth token updated');
+    }
+  }
+
   private buildUrl(): string {
     /**Build WebSocket URL based on RoomConfig.toProtooUrl()*/
     const params = new URLSearchParams({
@@ -169,6 +179,7 @@ export class RaveWebSocketClient {
 
     // Build headers
     const headers = this.buildHeaders(false);
+    console.log(headers);
 
     return new Promise((resolve) => {
       try {

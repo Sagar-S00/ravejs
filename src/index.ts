@@ -12,7 +12,7 @@ export { ProtooRequest, ProtooNotification, ProtooResponse } from './websocket/p
 
 // Bot
 export { RaveBot } from './bot/bot';
-export { BotManager, BotState, BotInfo, BotStatus } from './bot/manager';
+export { BotManager, BotState, BotInfo } from './bot/manager';
 export { CommandContext } from './bot/context';
 
 // Models
@@ -52,6 +52,53 @@ export {
   getSystemPrompt
 } from './utils/cloudflare_ai';
 
+// Auth
+export { RaveLogin } from './auth/login';
+export type { LoginResult } from './auth/login';
+export {
+  loadCredentials,
+  saveCredentials,
+  deleteCredentials
+} from './auth/credentials';
+export type { Credentials } from './auth/credentials';
+
 // Types
 export type { MessageInfo, UserInfo, CommandHandler, EventHandler } from './bot/bot';
+
+// Process Management
+export { ProcessManager } from './process/manager';
+export { ProcessMonitor } from './process/monitor';
+export { MeshBlocklist } from './process/blocklist';
+export type { 
+  ProcessInfo, 
+  ProcessState, 
+  ProcessManagerConfig, 
+  MeshProcessConfig, 
+  WorkerStatus,
+  BlockedMesh,
+  BotStatus as ProcessBotStatus
+} from './process/types';
+
+// Database
+export { connectDatabase, disconnectDatabase, getDatabase, DatabaseConnection } from './database/connection';
+export type { DatabaseConfig } from './database/connection';
+export type { 
+  CredentialsDocument, 
+  AdminUserDocument, 
+  CommandPermissionDocument,
+  CredentialsData
+} from './database/models';
+export { credentialsRepo, adminRepo, permissionRepo } from './database/repositories';
+export { 
+  syncCredentialsToMongoDB, 
+  syncCredentialsFromMongoDB, 
+  ensureCredentialsSync,
+  updateCredentials
+} from './auth/sync';
+
+// Permissions
+export { PermissionManager, permissionManager } from './bot/permissions';
+
+// Worker
+export { MeshWorker } from './bot/worker';
 
