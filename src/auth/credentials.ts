@@ -20,11 +20,17 @@ export interface Credentials {
 const DEFAULT_CREDENTIALS_PATH = path.join(process.cwd(), 'config', 'credentials.json');
 
 /**
- * Strip "r: " prefix from token if present
+ * Strip "r:" or "r: " prefix from token if present
  */
 function stripTokenPrefix(token?: string): string | undefined {
   if (!token) return token;
-  return token.startsWith('r: ') ? token.substring(3) : token;
+  // Handle both "r:" and "r: " formats
+  if (token.startsWith('r: ')) {
+    return token.substring(3);
+  } else if (token.startsWith('r:')) {
+    return token.substring(2);
+  }
+  return token;
 }
 
 /**

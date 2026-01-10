@@ -247,8 +247,16 @@ export class RaveBot {
         const loginClient = new RaveLogin(credentials.email, credentials.deviceId, credentials.ssaid);
         const loginResult = await loginClient.login(true);
 
-        // Strip "r: " prefix from tokens before saving
-        const stripPrefix = (token?: string) => token?.startsWith('r: ') ? token.substring(3) : token;
+        // Strip "r:" or "r: " prefix from tokens before saving
+        const stripPrefix = (token?: string) => {
+          if (!token) return token;
+          if (token.startsWith('r: ')) {
+            return token.substring(3);
+          } else if (token.startsWith('r:')) {
+            return token.substring(2);
+          }
+          return token;
+        };
 
         // Prepare new credentials with stripped tokens
         const newCredentials = {

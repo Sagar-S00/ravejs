@@ -8,11 +8,17 @@ import { CredentialsData } from '../database/models';
 import { loadCredentials, saveCredentials, Credentials } from './credentials';
 
 /**
- * Strip "r: " prefix from token if present
+ * Strip "r:" or "r: " prefix from token if present
  */
 function stripTokenPrefix(token?: string): string | undefined {
   if (!token) return token;
-  return token.startsWith('r: ') ? token.substring(3) : token;
+  // Handle both "r:" and "r: " formats
+  if (token.startsWith('r: ')) {
+    return token.substring(3);
+  } else if (token.startsWith('r:')) {
+    return token.substring(2);
+  }
+  return token;
 }
 
 /**
@@ -28,14 +34,14 @@ export async function syncCredentialsToMongoDB(): Promise<void> {
       return;
     }
 
-    // Convert to CredentialsData format
+    // Convert to CredentialsData format (strip "r:" prefix from tokens)
     const data: CredentialsData = {
       email: credentials.email,
       deviceId: credentials.deviceId,
       ssaid: credentials.ssaid,
       parseId: credentials.parseId,
-      parseToken: credentials.parseToken,
-      authToken: credentials.authToken || credentials.parseToken || '',
+      parseToken: stripTokenPrefix(credentials.parseToken),
+      authToken: stripTokenPrefix(credentials.authToken || credentials.parseToken) || '',
       userId: credentials.userId,
       peerId: credentials.peerId || ''
     };

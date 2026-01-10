@@ -103,27 +103,37 @@ async function main() {
         const loginClient = new RaveLogin(email);
         const loginResult = await loginClient.login(true);
 
-        // Save credentials to both MongoDB and JSON
+        // Strip "r:" or "r: " prefix from tokens before saving
+        const stripPrefix = (token?: string) => {
+          if (!token) return token;
+          if (token.startsWith('r: ')) {
+            return token.substring(3);
+          } else if (token.startsWith('r:')) {
+            return token.substring(2);
+          }
+          return token;
+        };
+
+        // Save credentials to both MongoDB and JSON (tokens will be stripped by saveCredentials and updateCredentials)
         const newCredentials = {
           email: email,
           deviceId: loginResult.deviceId,
           ssaid: loginResult.ssaid,
           parseId: loginResult.parseId,
-          parseToken: loginResult.parseToken,
-          authToken: loginResult.authToken,
+          parseToken: stripPrefix(loginResult.parseToken),
+          authToken: stripPrefix(loginResult.authToken || loginResult.parseToken),
           userId: loginResult.userId,
           peerId: loginResult.peerId
         };
 
-        await saveCredentials(newCredentials);
-        
-        // Import sync after ensuring dependencies are loaded (only if MongoDB is connected)
+        // Use updateCredentials to ensure tokens are stripped in both MongoDB and JSON
         if (mongoConnected) {
-          const { syncCredentialsToMongoDB } = await import('../src/auth/sync');
-          await syncCredentialsToMongoDB();
-          console.log('\n✓ Credentials saved to file and database\n');
+          const { updateCredentials } = await import('../src/auth/sync');
+          await updateCredentials(newCredentials);
+          console.log('\n✓ Credentials saved to file and database (tokens stripped)\n');
         } else {
-          console.log('\n✓ Credentials saved to file\n');
+          await saveCredentials(newCredentials);
+          console.log('\n✓ Credentials saved to file (tokens stripped)\n');
         }
 
         // Use new credentials
