@@ -517,7 +517,8 @@ export class RaveWebSocketClient {
     message: string,
     userId?: string,
     replyTo?: string,
-    media?: Record<string, any>[]
+    media?: Record<string, any>[],
+    userMetas?: Array<{ handle: string; id: number }>
   ): Promise<string> {
     /**
      * Send a chat message
@@ -526,9 +527,10 @@ export class RaveWebSocketClient {
      * @param userId - Optional user ID
      * @param replyTo - Optional message ID to reply to
      * @param media - Optional list of media items to include in message
+     * @param userMetas - Optional array of user metadata for tagging/mentions
      * @returns Message ID that was sent (may be different from server's assigned ID)
      */
-    // Based on history: {"data":{"chat":"...","detected_lang":"en","id":"...","reply":"...","translations":{},"media":[...]},"method":"chatMessage","notification":true}
+    // Based on history: {"data":{"chat":"...","detected_lang":"en","id":"...","reply":"...","translations":{},"media":[...],"user_metas":[...]},"method":"chatMessage","notification":true}
     const messageId = uuidv4();
     const data: Record<string, any> = {
       chat: message,
@@ -545,6 +547,9 @@ export class RaveWebSocketClient {
     }
     if (media) {
       data.media = media;
+    }
+    if (userMetas && userMetas.length > 0) {
+      data.user_metas = userMetas;
     }
 
     const notification = new ProtooNotification("chatMessage", data);

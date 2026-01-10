@@ -150,6 +150,26 @@ export async function getUsersList(
 }
 
 /**
+ * Get recent users/contacts
+ * 
+ * @param limit - Maximum number of contacts to return (default: 24)
+ * @param apiClient - Optional API client instance (uses default if not provided)
+ * @returns Response JSON dictionary containing contacts data
+ * Format: {"data": [{...user objects...}], "paging": {...}}
+ */
+export async function getRecentUsers(
+  limit: number = 24,
+  apiClient?: RaveAPIClient
+): Promise<Record<string, any>> {
+  const client = apiClient || getDefaultApiClient();
+  const response = await client.get("/contacts", { limit: limit });
+  if (response.status !== 200) {
+    throw new Error(`Failed to get recent users: ${response.status}`);
+  }
+  return response.data || { data: [], paging: {} };
+}
+
+/**
  * Get meshes based on mode
  * 
  * @param deviceId - Device ID (required)
@@ -226,6 +246,39 @@ export async function getInvitedMeshes(
   apiClient?: RaveAPIClient
 ): Promise<Record<string, any>> {
   return getMeshes(deviceId, "invited", limit, lang, apiClient);
+}
+
+/**
+ * Invite users to a mesh
+ * 
+ * @param meshId - Mesh ID to invite users to
+ * @param userIds - Array of user IDs to invite
+ * @param deviceId - Device ID (required)
+ * @param includeOnline - Whether to include online status (default: false)
+ * @param apiClient - Optional API client instance (uses default if not provided)
+ * @returns Response JSON dictionary containing success status
+ * Format: {"success": true}
+ */
+export async function inviteUsers(
+  meshId: string,
+  userIds: number[],
+  deviceId: string,
+  includeOnline: boolean = false,
+  apiClient?: RaveAPIClient
+): Promise<Record<string, any>> {
+  const client = apiClient || getDefaultApiClient();
+  
+  const payload = {
+    deviceId: deviceId,
+    ids: userIds,
+    includeOnline: includeOnline
+  };
+  
+  const response = await client.post(`/meshes/${meshId}/invites`, payload);
+  if (response.status !== 200) {
+    throw new Error(`Failed to invite users to mesh: ${response.status}`);
+  }
+  return response.data || { success: false };
 }
 
 /**

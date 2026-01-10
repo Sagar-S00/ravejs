@@ -419,7 +419,8 @@ export class RaveBot {
   async sendMessage(
     text: string,
     replyTo?: string,
-    media?: Record<string, any>[]
+    media?: Record<string, any>[],
+    userMetas?: Array<{ handle: string; id: number }>
   ): Promise<string | undefined> {
     /**
      * Send a chat message
@@ -427,11 +428,12 @@ export class RaveBot {
      * @param text - Message text to send
      * @param replyTo - Optional message ID to reply to
      * @param media - Optional list of media items to include in message
+     * @param userMetas - Optional array of user metadata for tagging/mentions
      * @returns Message ID that was sent
      */
     if (this.client) {
       // Send message and get the ID we sent
-      const sentMessageId = await this.client.sendChatMessage(text, undefined, replyTo, media);
+      const sentMessageId = await this.client.sendChatMessage(text, undefined, replyTo, media, userMetas);
       // Track the message ID we sent immediately
       if (sentMessageId) {
         this.botMessageIds.add(sentMessageId);

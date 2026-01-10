@@ -29,8 +29,10 @@ export {
   getMeshInfo,
   getFriendships,
   getUsersList,
+  getRecentUsers,
   getMeshes,
   getInvitedMeshes,
+  inviteUsers,
   leaveMesh,
   uploadMedia
 } from './utils/helpers';

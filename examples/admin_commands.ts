@@ -259,4 +259,92 @@ export function registerAdminCommands(manager: any) {
       await ctx.reply(`❌ Error: ${error.message}`);
     }
   });
+
+  // ?inviteall command - Invite all recent users to the mesh
+  manager.command('inviteall', async (ctx: CommandContext) => {
+    const senderUserId = ctx.message.senderUserId;
+    
+    if (!senderUserId) {
+      await ctx.reply('❌ Could not identify user');
+      return;
+    }
+
+    const isAdmin = await permissionManager.isAdmin(senderUserId);
+    if (!isAdmin) {
+      await ctx.reply('❌ This command requires admin privileges');
+      return;
+    }
+
+    // Check if deviceId is available
+    if (!ctx.bot.deviceId) {
+      await ctx.reply('❌ Device ID not available. Cannot invite users.');
+      return;
+    }
+
+    try {
+      await ctx.reply('🔄 Fetching recent users and inviting them...');
+
+      // Import required functions
+      const { getRecentUsers, inviteUsers } = await import('../src/utils/helpers');
+      const { RaveAPIClient } = await import('../src/api/client');
+
+      // Create API client
+      const apiClient = new RaveAPIClient("https://api.red.wemesh.ca", ctx.bot.authToken);
+
+      // Fetch recent users
+      const recentUsersResponse = await getRecentUsers(100, apiClient); // Get up to 100 users
+      const users = recentUsersResponse.data || [];
+
+      if (users.length === 0) {
+        await ctx.reply('⚠️ No recent users found');
+        return;
+      }
+
+      // Extract user IDs and handles
+      const userIds: number[] = [];
+      const userMetas: Array<{ handle: string; id: number }> = [];
+
+      for (const user of users) {
+        if (user.id && user.handle) {
+          const userId = typeof user.id === 'string' ? parseInt(user.id, 10) : user.id;
+          if (!isNaN(userId)) {
+            userIds.push(userId);
+            userMetas.push({
+              handle: user.handle,
+              id: userId
+            });
+          }
+        }
+      }
+
+      if (userIds.length === 0) {
+        await ctx.reply('⚠️ No valid users found to invite');
+        return;
+      }
+
+      // Invite all users
+      await inviteUsers(
+        ctx.bot.roomId,
+        userIds,
+        ctx.bot.deviceId,
+        false,
+        apiClient
+      );
+
+      // Build mention string with all handles
+      const mentionText = userMetas.map(meta => `@${meta.handle}`).join(' ');
+
+      // Send message tagging all invited users
+      await ctx.bot.sendMessage(
+        `✅ Invited ${userIds.length} users to the mesh! ${mentionText}`,
+        undefined,
+        undefined,
+        userMetas
+      );
+
+    } catch (error: any) {
+      await ctx.reply(`❌ Error: ${error.message}`);
+      console.error('InviteAll error:', error);
+    }
+  });
 }
