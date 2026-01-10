@@ -8,7 +8,8 @@
     "build": "npx tsc",
     "dev": "npx tsc --watch",
     "prepublishOnly": "npm run build",
-    "start": "npx ts-node examples/multi-mesh-bot.ts"
+    "start": "npx ts-node examples/multi-mesh-bot.ts",
+    "start:restart": "npx ts-node examples/restart-wrapper.ts"
   },
   "keywords": [
     "rave",

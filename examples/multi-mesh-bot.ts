@@ -168,7 +168,7 @@ async function main() {
       maxProcesses: Infinity, // Unlimited processes
       statusPollInterval: 30, // Poll every 30 seconds
       processRestartDelay: 5, // Wait 5 seconds before restart
-      maxProcessRestarts: 5, // Max 5 restart attempts
+      maxProcessRestarts: 5, // Max 5 restart attempts (minimum 3 enforced by ProcessManager)
       shutdownTimeout: 10, // Wait 10 seconds for graceful shutdown
       maxConnectionAttempts: 3, // Max 3 connection attempts per mesh
       blocklistDuration: 3600000, // 1 hour blocklist

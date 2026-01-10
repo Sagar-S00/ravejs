@@ -34,7 +34,7 @@ export class ProcessManager {
       maxProcesses: config.maxProcesses || Infinity,
       statusPollInterval: config.statusPollInterval || 30,
       processRestartDelay: config.processRestartDelay || 5,
-      maxProcessRestarts: config.maxProcessRestarts || 5,
+      maxProcessRestarts: Math.max(config.maxProcessRestarts || 5, 3), // Ensure at least 3 restart attempts
       shutdownTimeout: config.shutdownTimeout || 10,
       maxConnectionAttempts: config.maxConnectionAttempts || 3,
       blocklistDuration: config.blocklistDuration || 3600000,  // 1 hour
@@ -44,6 +44,9 @@ export class ProcessManager {
       discoveryInterval: config.discoveryInterval || 60,
       ...config
     };
+    
+    // Ensure maxProcessRestarts is at least 3 after merging config
+    this.config.maxProcessRestarts = Math.max(this.config.maxProcessRestarts || 5, 3);
 
     this.apiClient = apiClient || new RaveAPIClient("https://api.red.wemesh.ca", config.authToken);
 

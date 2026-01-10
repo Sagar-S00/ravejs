@@ -75,7 +75,8 @@ export class ProcessMonitor {
     for (const [meshId, processInfo] of this.processes.entries()) {
       // Skip stopped processes
       if (processInfo.state === ProcessState.STOPPED || 
-          processInfo.state === ProcessState.BLOCKED) {
+          processInfo.state === ProcessState.BLOCKED ||
+          processInfo.state === ProcessState.RESTARTING) {
         continue;
       }
 
@@ -104,14 +105,42 @@ export class ProcessMonitor {
    */
   private requestStatus(meshId: string, processInfo: ProcessInfo): void {
     try {
-      if (processInfo.process && !processInfo.process.killed) {
-        const request = createStatusRequest(meshId);
-        console.log(`[Monitor] Sending status_request to ${meshId}, PID: ${processInfo.process.pid}`);
-        processInfo.process.send(request);
-      } else {
-        console.log(`[Monitor] Cannot send status_request to ${meshId}: process=${!!processInfo.process}, killed=${processInfo.process?.killed}`);
+      // Skip processes that shouldn't be monitored
+      if (processInfo.state === ProcessState.STOPPED || 
+          processInfo.state === ProcessState.BLOCKED ||
+          processInfo.state === ProcessState.RESTARTING) {
+        return;
       }
+
+      if (!processInfo.process) {
+        return;
+      }
+
+      // Check if process is killed
+      if (processInfo.process.killed) {
+        return;
+      }
+
+      // Check if IPC channel is still connected
+      if (processInfo.process.connected === false) {
+        return;
+      }
+
+      // Check if process has exited
+      if (processInfo.process.exitCode !== null) {
+        return;
+      }
+
+      const request = createStatusRequest(meshId);
+      console.log(`[Monitor] Sending status_request to ${meshId}, PID: ${processInfo.process.pid}`);
+      processInfo.process.send(request);
     } catch (error: any) {
+      // Handle IPC channel closed errors gracefully
+      if (error.code === 'ERR_IPC_CHANNEL_CLOSED' || 
+          error.message?.includes('Channel closed')) {
+        // Process has exited, this is expected
+        return;
+      }
       console.error(`[Monitor] Failed to request status from ${meshId}:`, error.message);
     }
   }

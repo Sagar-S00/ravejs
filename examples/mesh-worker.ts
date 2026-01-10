@@ -186,6 +186,15 @@ async function main() {
     if (running) {
       console.log(`[MeshWorker] Bot disconnected from mesh ${config.meshId}`);
       
+      // Check if server initiated disconnect
+      const bot = worker.getBot();
+      if (bot.serverDisconnected) {
+        console.log(`[MeshWorker] Server initiated disconnect, exiting gracefully`);
+        // Give time for the disconnected event to be sent
+        await new Promise(resolve => setTimeout(resolve, 500));
+        process.exit(0);
+      }
+      
       // Check if connection attempts exceeded
       if (worker.hasExceededConnectionAttempts()) {
         console.log(`[MeshWorker] Max connection attempts exceeded for mesh ${config.meshId}`);
@@ -198,16 +207,14 @@ async function main() {
         }
         process.exit(1);
       } else {
-        // Send connection failed event
-        if (process.send) {
+        // Send connection failed event only if we haven't already sent disconnected event
+        if (process.send && !bot.serverDisconnected) {
           process.send(createEvent({
             type: 'connection_failed',
             meshId: config.meshId,
             attempt: worker.getStatus().connectionAttempts || 0
           }));
-        }
-        
-        if (process.send) {
+          
           process.send(createEvent({ type: 'disconnected', reason: 'Connection lost' }));
         }
         process.exit(1);

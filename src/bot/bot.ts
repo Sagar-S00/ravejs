@@ -86,6 +86,9 @@ export class RaveBot {
   // Flag to track if bot left because it was the last user
   leftBecauseLastUser: boolean = false;
 
+  // Flag to track if server initiated disconnect
+  serverDisconnected: boolean = false;
+
   constructor(
     server: string,
     roomId: string,
@@ -520,6 +523,19 @@ export class RaveBot {
         if (this.debug) {
           console.log("Server sent disconnected notification, closing connection");
         }
+        
+        // Mark as server-initiated disconnect
+        this.serverDisconnected = true;
+        
+        // Notify parent if in worker process
+        if (process.send) {
+          const { createEvent } = await import('../process/ipc');
+          process.send(createEvent({
+            type: 'disconnected',
+            reason: 'Server disconnected'
+          }));
+        }
+        
         if (this.client) {
           await this.client.disconnect(1000, "Server disconnected");
         }
