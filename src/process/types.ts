@@ -34,6 +34,7 @@ export interface ProcessInfo {
   lastHeartbeat: number;
   config: MeshProcessConfig;
   kicked: boolean;  // Track if kicked to prevent rejoin
+  serverDisconnected: boolean;  // Track if server initiated disconnect (likely empty mesh)
 }
 
 /**

@@ -77,6 +77,7 @@ export class ProcessManager {
         this.config.meshMode!,
         limit,
         lang,
+        undefined,
         this.apiClient
       );
       return response.data || [];
@@ -151,7 +152,8 @@ export class ProcessManager {
         startedAt: Date.now(),
         lastHeartbeat: Date.now(),
         config: processConfig,
-        kicked: false
+        kicked: false,
+        serverDisconnected: false
       };
 
       this.processes.set(meshId, processInfo);
@@ -209,6 +211,12 @@ export class ProcessManager {
           case 'disconnected':
             console.log(`[ProcessManager] Process ${meshId} disconnected: ${event.reason}`);
             processInfo.state = ProcessState.DISCONNECTED;
+            // Check if it's a server-initiated disconnect (likely empty mesh)
+            if (event.reason && event.reason.includes('Server disconnected')) {
+              console.log(`[ProcessManager] Server initiated disconnect for ${meshId} - likely empty mesh, will not restart`);
+              processInfo.serverDisconnected = true;
+              processInfo.state = ProcessState.STOPPED;
+            }
             break;
 
           case 'kicked':
@@ -319,8 +327,11 @@ export class ProcessManager {
       return;
     }
 
-    // Don't restart if kicked or blocked
-    if (processInfo.kicked || processInfo.state === ProcessState.BLOCKED) {
+    // Don't restart if kicked, blocked, or server disconnected (empty mesh)
+    if (processInfo.kicked || processInfo.state === ProcessState.BLOCKED || processInfo.serverDisconnected) {
+      if (processInfo.serverDisconnected) {
+        console.log(`[ProcessManager] Process ${meshId} was disconnected by server (likely empty mesh), not restarting`);
+      }
       this.processes.delete(meshId);
       return;
     }

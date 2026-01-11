@@ -260,8 +260,9 @@ export function registerAdminCommands(manager: any) {
     }
   });
 
-  // ?inviteall command - Invite all recent users to the mesh
+  // ?inviteall command - Invite users from recent contacts or public meshes
   manager.command('inviteall', async (ctx: CommandContext) => {
+    const args = ctx.args;
     const senderUserId = ctx.message.senderUserId;
     
     if (!senderUserId) {
@@ -281,40 +282,120 @@ export function registerAdminCommands(manager: any) {
       return;
     }
 
+    // Parse mode: "recent" (default) or "public"
+    const mode = args.length > 0 ? args[0].toLowerCase() : 'recent';
+    
+    if (mode !== 'recent' && mode !== 'public') {
+      await ctx.reply('❌ Invalid mode. Use `?inviteall recent` or `?inviteall public`');
+      return;
+    }
+
     try {
-      await ctx.reply('🔄 Fetching recent users and inviting them...');
+      await ctx.reply(`🔄 Fetching users from ${mode === 'public' ? 'public meshes' : 'recent contacts'}...`);
 
       // Import required functions
-      const { getRecentUsers, inviteUsers } = await import('../src/utils/helpers');
+      const { getRecentUsers, getMeshesWithFilters, inviteUsers } = await import('../src/utils/helpers');
       const { RaveAPIClient } = await import('../src/api/client');
 
       // Create API client
       const apiClient = new RaveAPIClient("https://api.red.wemesh.ca", ctx.bot.authToken);
 
-      // Fetch recent users
-      const recentUsersResponse = await getRecentUsers(100, apiClient); // Get up to 100 users
-      const users = recentUsersResponse.data || [];
-
-      if (users.length === 0) {
-        await ctx.reply('⚠️ No recent users found');
-        return;
-      }
-
-      // Extract user IDs and handles
       const userIds: number[] = [];
       const userMetas: Array<{ handle: string; id: number }> = [];
+      const seenUserIds = new Set<number>();
+      let totalMeshesFetched = 0;
 
-      for (const user of users) {
-        if (user.id && user.handle) {
-          const userId = typeof user.id === 'string' ? parseInt(user.id, 10) : user.id;
-          if (!isNaN(userId)) {
-            userIds.push(userId);
-            userMetas.push({
-              handle: user.handle,
-              id: userId
-            });
+      if (mode === 'recent') {
+        // Fetch recent users from contacts
+        const recentUsersResponse = await getRecentUsers(100, apiClient);
+        const users = recentUsersResponse.data || [];
+
+        for (const user of users) {
+          if (user.id && user.handle) {
+            const userId = typeof user.id === 'string' ? parseInt(user.id, 10) : user.id;
+            if (!isNaN(userId) && !seenUserIds.has(userId)) {
+              seenUserIds.add(userId);
+              userIds.push(userId);
+              userMetas.push({
+                handle: user.handle,
+                id: userId
+              });
+            }
           }
         }
+      } else {
+        // Fetch users from public meshes (20-30 meshes)
+        const targetMeshes = 30;
+        let cursor: string | undefined = undefined;
+        let hasMore = true;
+
+        while (totalMeshesFetched < targetMeshes && hasMore) {
+          const limit = Math.min(20, targetMeshes - totalMeshesFetched);
+          
+          const meshesResponse = await getMeshesWithFilters(
+            ctx.bot.deviceId,
+            {
+              public: true,
+              friends: false,
+              local: false,
+              invited: false,
+              limit: limit,
+              lang: "en",
+              cursor: cursor
+            },
+            apiClient
+          );
+
+          const meshes = meshesResponse.data || [];
+          totalMeshesFetched += meshes.length;
+
+          // Extract unique users from all meshes
+          for (const meshData of meshes) {
+            const users = meshData.users || [];
+            for (const user of users) {
+              if (user.id && user.handle) {
+                const userId = typeof user.id === 'string' ? parseInt(user.id, 10) : user.id;
+                if (!isNaN(userId) && !seenUserIds.has(userId)) {
+                  seenUserIds.add(userId);
+                  userIds.push(userId);
+                  userMetas.push({
+                    handle: user.handle,
+                    id: userId
+                  });
+                }
+              }
+            }
+          }
+
+          // Check for next page
+          const paging = meshesResponse.paging || {};
+          if (paging.next) {
+            // Extract cursor from next URL
+            try {
+              const url = new URL(paging.next);
+              cursor = url.searchParams.get('cursor') || undefined;
+              hasMore = !!cursor;
+            } catch {
+              hasMore = false;
+            }
+          } else {
+            hasMore = false;
+          }
+
+          // Small delay to avoid rate limiting
+          if (hasMore && totalMeshesFetched < targetMeshes) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        }
+
+        // Don't send message here, wait until after fetching is complete
+      }
+
+      // Send total users fetched message
+      if (mode === 'public') {
+        await ctx.reply(`📊 Fetched ${totalMeshesFetched} public meshes, found ${userIds.length} unique users`);
+      } else {
+        await ctx.reply(`📊 Found ${userIds.length} unique users from recent contacts`);
       }
 
       if (userIds.length === 0) {
@@ -322,25 +403,56 @@ export function registerAdminCommands(manager: any) {
         return;
       }
 
-      // Invite all users
-      await inviteUsers(
-        ctx.bot.roomId,
-        userIds,
-        ctx.bot.deviceId,
-        false,
-        apiClient
-      );
-
-      // Build mention string with all handles
-      const mentionText = userMetas.map(meta => `@${meta.handle}`).join(' ');
-
-      // Send message tagging all invited users
-      await ctx.bot.sendMessage(
-        `✅ Invited ${userIds.length} users to the mesh! ${mentionText}`,
-        undefined,
-        undefined,
-        userMetas
-      );
+      // Split into chunks of 80 for both invites and mentions
+      const chunkSize = 80;
+      const totalChunks = Math.ceil(userIds.length / chunkSize);
+      
+      await ctx.reply(`📤 Inviting ${userIds.length} users in ${totalChunks} batches of ${chunkSize}...`);
+      
+      // Invite all users first (in chunks)
+      for (let i = 0; i < userIds.length; i += chunkSize) {
+        const userIdChunk = userIds.slice(i, i + chunkSize);
+        
+        // Invite this chunk of users
+        await inviteUsers(
+          ctx.bot.roomId,
+          userIdChunk,
+          ctx.bot.deviceId,
+          false,
+          apiClient
+        );
+      }
+      
+      // Now send mention messages with 4 second delay between batches
+      for (let i = 0; i < userMetas.length; i += chunkSize) {
+        const userMetaChunk = userMetas.slice(i, i + chunkSize);
+        const chunkNumber = Math.floor(i / chunkSize) + 1;
+        
+        // Build mention text for this chunk
+        const mentionText = userMetaChunk.map(meta => `@${meta.handle}`).join(' ');
+        
+        // Send message with mentions for this chunk
+        if (chunkNumber === 1) {
+          await ctx.bot.sendMessage(
+            `✅ Invited ${userIds.length} users to the mesh! (Batch ${chunkNumber}/${totalChunks}) ${mentionText}`,
+            undefined,
+            undefined,
+            userMetaChunk
+          );
+        } else {
+          await ctx.bot.sendMessage(
+            `(Batch ${chunkNumber}/${totalChunks}) ${mentionText}`,
+            undefined,
+            undefined,
+            userMetaChunk
+          );
+        }
+        
+        // 4 second delay between batches
+        if (i + chunkSize < userMetas.length) {
+          await new Promise(resolve => setTimeout(resolve, 4000));
+        }
+      }
 
     } catch (error: any) {
       await ctx.reply(`❌ Error: ${error.message}`);

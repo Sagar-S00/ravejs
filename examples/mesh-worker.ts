@@ -171,6 +171,18 @@ async function main() {
     // On kicked
     bot.event('on_kicked', async () => {
       console.log(`[MeshWorker] Bot kicked from mesh ${config.meshId}`);
+      
+      // Remove invite from mesh when kicked
+      try {
+        const { leaveMesh } = await import('../src/utils/helpers');
+        const { RaveAPIClient } = await import('../src/api/client');
+        const apiClient = new RaveAPIClient("https://api.red.wemesh.ca", bot.authToken);
+        await leaveMesh(config.meshId, config.deviceId, apiClient);
+        console.log(`[MeshWorker] Removed invite from mesh ${config.meshId} after being kicked`);
+      } catch (error: any) {
+        console.error(`[MeshWorker] Failed to remove invite after kick: ${error.message}`);
+      }
+      
       if (process.send) {
         process.send(createEvent({ type: 'kicked', meshId: config.meshId }));
       }
@@ -190,6 +202,25 @@ async function main() {
       const bot = worker.getBot();
       if (bot.serverDisconnected) {
         console.log(`[MeshWorker] Server initiated disconnect, exiting gracefully`);
+        
+        // Remove invite from mesh when server disconnects (likely empty mesh)
+        try {
+          const { leaveMesh } = await import('../src/utils/helpers');
+          const { RaveAPIClient } = await import('../src/api/client');
+          const apiClient = new RaveAPIClient("https://api.red.wemesh.ca", bot.authToken);
+          await leaveMesh(config.meshId, config.deviceId, apiClient);
+          console.log(`[MeshWorker] Removed invite from mesh ${config.meshId} after server disconnect`);
+        } catch (error: any) {
+          console.error(`[MeshWorker] Failed to remove invite after server disconnect: ${error.message}`);
+        }
+        
+        // Send disconnected event to parent so it knows not to restart
+        if (process.send) {
+          process.send(createEvent({ 
+            type: 'disconnected', 
+            reason: 'Server disconnected (likely empty mesh)'
+          }));
+        }
         // Give time for the disconnected event to be sent
         await new Promise(resolve => setTimeout(resolve, 500));
         process.exit(0);

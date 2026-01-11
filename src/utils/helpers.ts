@@ -173,9 +173,10 @@ export async function getRecentUsers(
  * Get meshes based on mode
  * 
  * @param deviceId - Device ID (required)
- * @param mode - "invited" for only invited meshes, "all" for public + friends + invited
+ * @param mode - "invited" for only invited meshes, "public" for public meshes, "friends" for friend meshes, "all" for public + friends + invited
  * @param limit - Maximum number of meshes to return (default: 20)
  * @param lang - Language code (default: "en")
+ * @param cursor - Optional cursor for pagination (from paging.next URL)
  * @param apiClient - Optional API client instance (uses default if not provided)
  * @returns Response JSON dictionary containing list of mesh data with users
  * Format: {"data": [{"mesh": {...}, "users": [...]}, ...], "paging": {...}}
@@ -185,6 +186,7 @@ export async function getMeshes(
   mode: string = "invited",
   limit: number = 20,
   lang: string = "en",
+  cursor?: string,
   apiClient?: RaveAPIClient
 ): Promise<Record<string, any>> {
   const client = apiClient || getDefaultApiClient();
@@ -194,7 +196,7 @@ export async function getMeshes(
     const seenIds = new Set<string>();
 
     for (const meshType of ["public", "friends", "invited"]) {
-      const params = {
+      const params: Record<string, any> = {
         deviceId: deviceId,
         public: meshType === "public" ? "true" : "false",
         friends: meshType === "friends" ? "true" : "false",
@@ -203,6 +205,17 @@ export async function getMeshes(
         limit: limit,
         lang: lang
       };
+      
+      // Add cursor if provided (only for first iteration to avoid confusion)
+      if (cursor && meshType === "public") {
+        if (cursor.includes('cursor=')) {
+          const urlParams = new URLSearchParams(cursor.split('?')[1] || '');
+          params.cursor = urlParams.get('cursor') || cursor;
+        } else {
+          params.cursor = cursor;
+        }
+      }
+      
       const response = await client.get("/meshes/self", params);
       if (response.status === 200) {
         const data = response.data.data || [];
@@ -218,8 +231,63 @@ export async function getMeshes(
     }
 
     return { data: allMeshes.slice(0, limit), paging: {} };
+  } else if (mode === "public") {
+    // Get public meshes
+    const params: Record<string, any> = {
+      deviceId: deviceId,
+      public: "true",
+      friends: "false",
+      local: "false",
+      invited: "false",
+      limit: limit,
+      lang: lang
+    };
+    
+    // Add cursor if provided
+    if (cursor) {
+      if (cursor.includes('cursor=')) {
+        const urlParams = new URLSearchParams(cursor.split('?')[1] || '');
+        params.cursor = urlParams.get('cursor') || cursor;
+      } else {
+        params.cursor = cursor;
+      }
+    }
+    
+    const response = await client.get("/meshes/self", params);
+    if (response.status !== 200) {
+      throw new Error(`Failed to get public meshes: ${response.status}`);
+    }
+    return response.data || { data: [], paging: {} };
+  } else if (mode === "friends") {
+    // Get friend meshes
+    const params: Record<string, any> = {
+      deviceId: deviceId,
+      public: "false",
+      friends: "true",
+      local: "false",
+      invited: "false",
+      limit: limit,
+      lang: lang
+    };
+    
+    // Add cursor if provided
+    if (cursor) {
+      if (cursor.includes('cursor=')) {
+        const urlParams = new URLSearchParams(cursor.split('?')[1] || '');
+        params.cursor = urlParams.get('cursor') || cursor;
+      } else {
+        params.cursor = cursor;
+      }
+    }
+    
+    const response = await client.get("/meshes/self", params);
+    if (response.status !== 200) {
+      throw new Error(`Failed to get friend meshes: ${response.status}`);
+    }
+    return response.data || { data: [], paging: {} };
   } else {
-    const params = {
+    // Default: invited meshes
+    const params: Record<string, any> = {
       deviceId: deviceId,
       public: "false",
       friends: "false",
@@ -228,12 +296,82 @@ export async function getMeshes(
       limit: limit,
       lang: lang
     };
+    
+    // Add cursor if provided
+    if (cursor) {
+      if (cursor.includes('cursor=')) {
+        const urlParams = new URLSearchParams(cursor.split('?')[1] || '');
+        params.cursor = urlParams.get('cursor') || cursor;
+      } else {
+        params.cursor = cursor;
+      }
+    }
+    
     const response = await client.get("/meshes/self", params);
     if (response.status !== 200) {
       throw new Error(`Failed to get meshes: ${response.status}`);
     }
     return response.data || { data: [], paging: {} };
   }
+}
+
+/**
+ * Get meshes with custom filter parameters
+ * 
+ * @param deviceId - Device ID (required)
+ * @param options - Filter options
+ * @param options.public - Include public meshes (default: false)
+ * @param options.friends - Include friend meshes (default: false)
+ * @param options.local - Include local meshes (default: false)
+ * @param options.invited - Include invited meshes (default: false)
+ * @param options.limit - Maximum number of meshes to return (default: 20)
+ * @param options.lang - Language code (default: "en")
+ * @param options.cursor - Cursor for pagination (from paging.next URL)
+ * @param apiClient - Optional API client instance (uses default if not provided)
+ * @returns Response JSON dictionary containing list of mesh data with users
+ * Format: {"data": [{"mesh": {...}, "users": [...]}, ...], "paging": {...}}
+ */
+export async function getMeshesWithFilters(
+  deviceId: string,
+  options: {
+    public?: boolean;
+    friends?: boolean;
+    local?: boolean;
+    invited?: boolean;
+    limit?: number;
+    lang?: string;
+    cursor?: string;
+  } = {},
+  apiClient?: RaveAPIClient
+): Promise<Record<string, any>> {
+  const client = apiClient || getDefaultApiClient();
+  
+  const params: Record<string, any> = {
+    deviceId: deviceId,
+    public: String(options.public ?? false),
+    friends: String(options.friends ?? false),
+    local: String(options.local ?? false),
+    invited: String(options.invited ?? false),
+    limit: options.limit ?? 20,
+    lang: options.lang ?? "en"
+  };
+  
+  // Add cursor if provided (extract from URL or use directly)
+  if (options.cursor) {
+    // If cursor is a full URL, extract the cursor parameter
+    if (options.cursor.includes('cursor=')) {
+      const urlParams = new URLSearchParams(options.cursor.split('?')[1] || '');
+      params.cursor = urlParams.get('cursor') || options.cursor;
+    } else {
+      params.cursor = options.cursor;
+    }
+  }
+  
+  const response = await client.get("/meshes/self", params);
+  if (response.status !== 200) {
+    throw new Error(`Failed to get meshes: ${response.status}`);
+  }
+  return response.data || { data: [], paging: {} };
 }
 
 /**
@@ -245,7 +383,7 @@ export async function getInvitedMeshes(
   lang: string = "en",
   apiClient?: RaveAPIClient
 ): Promise<Record<string, any>> {
-  return getMeshes(deviceId, "invited", limit, lang, apiClient);
+  return getMeshes(deviceId, "invited", limit, lang, undefined, apiClient);
 }
 
 /**

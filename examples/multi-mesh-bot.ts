@@ -43,6 +43,34 @@ function promptEmail(): Promise<string> {
   });
 }
 
+/**
+ * Get email from command line arguments or prompt user
+ */
+async function getEmail(): Promise<string> {
+  // Check command line arguments for email
+  const args = process.argv.slice(2);
+  const emailArg = args.find(arg => arg.includes('@') && arg.includes('.'));
+  
+  if (emailArg) {
+    return emailArg.trim();
+  }
+  
+  // Check for --email flag
+  const emailIndex = args.indexOf('--email');
+  if (emailIndex !== -1 && args[emailIndex + 1]) {
+    return args[emailIndex + 1].trim();
+  }
+  
+  // Check for -e flag
+  const eIndex = args.indexOf('-e');
+  if (eIndex !== -1 && args[eIndex + 1]) {
+    return args[eIndex + 1].trim();
+  }
+  
+  // If no email provided, prompt user
+  return await promptEmail();
+}
+
 async function main() {
   let processManager: ProcessManager | null = null;
 
@@ -50,6 +78,17 @@ async function main() {
     console.log('='.repeat(60));
     console.log('  Rave Multi-Process Bot Manager');
     console.log('='.repeat(60));
+
+    // Get email from command line or prompt
+    const requestedEmail = await getEmail();
+    
+    if (!requestedEmail) {
+      console.error('✗ Email is required. Exiting.');
+      console.log('Usage: npm start [email] or npm start -- --email <email>');
+      process.exit(1);
+    }
+
+    console.log(`\n📧 Using email: ${requestedEmail}`);
 
     // Step 1: Connect to MongoDB
     console.log('\n[1/5] Connecting to MongoDB...');
@@ -66,9 +105,9 @@ async function main() {
 
     // Step 2: Load and sync credentials
     console.log('\n[2/5] Loading credentials...');
-    let deviceId: string;
-    let authToken: string;
-    let peerId: string;
+    let deviceId: string = "";
+    let authToken: string = "";
+    let peerId: string = "unknown_peer";
 
     // Try to sync credentials from MongoDB and JSON
     let credentials;
@@ -79,28 +118,33 @@ async function main() {
       credentials = await loadCredentials();
     }
 
-    if (credentials && credentials.deviceId && credentials.authToken) {
-      console.log('✓ Loaded credentials from file/database');
+    // Check if credentials exist and match the requested email
+    const credentialsMatch = credentials && 
+                             credentials.deviceId && 
+                             credentials.authToken &&
+                             credentials.email && 
+                             credentials.email.toLowerCase() === requestedEmail.toLowerCase();
+
+    if (credentialsMatch && credentials) {
+      // Credentials match the requested email - use them
+      console.log(`✓ Loaded credentials for ${credentials.email}`);
       deviceId = credentials.deviceId;
-      authToken = credentials.authToken;
+      authToken = credentials.authToken || "";
       peerId = credentials.peerId || "unknown_peer";
     } else {
-      // No credentials found - perform login
-      console.log('⚠ No credentials found. Starting login process...');
-      console.log('  Please provide your email address to receive a magic link.');
-
-      const email = await promptEmail();
-
-      if (!email) {
-        console.error('✗ Email is required. Exiting.');
-        process.exit(1);
+      // Credentials don't exist or don't match - need to login
+      if (credentials && credentials.email) {
+        console.log(`⚠ Credentials found for different email (${credentials.email})`);
+        console.log(`  Starting login process for ${requestedEmail}...`);
+      } else {
+        console.log(`⚠ No credentials found. Starting login process for ${requestedEmail}...`);
       }
 
-      console.log(`\n📧 Requesting magic link for ${email}...`);
+      console.log(`\n📧 Requesting magic link for ${requestedEmail}...`);
       console.log('  Please check your email and click the magic link to continue.\n');
 
       try {
-        const loginClient = new RaveLogin(email);
+        const loginClient = new RaveLogin(requestedEmail);
         const loginResult = await loginClient.login(true);
 
         // Strip "r:" or "r: " prefix from tokens before saving
@@ -116,7 +160,7 @@ async function main() {
 
         // Save credentials to both MongoDB and JSON (tokens will be stripped by saveCredentials and updateCredentials)
         const newCredentials = {
-          email: email,
+          email: requestedEmail,
           deviceId: loginResult.deviceId,
           ssaid: loginResult.ssaid,
           parseId: loginResult.parseId,
@@ -138,7 +182,7 @@ async function main() {
 
         // Use new credentials
         deviceId = loginResult.deviceId;
-        authToken = loginResult.authToken || loginResult.parseToken;
+        authToken = loginResult.authToken || loginResult.parseToken || "";
         peerId = loginResult.peerId || "unknown_peer";
       } catch (error: any) {
         console.error(`\n✗ Login failed: ${error.message}`);

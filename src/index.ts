@@ -31,6 +31,7 @@ export {
   getUsersList,
   getRecentUsers,
   getMeshes,
+  getMeshesWithFilters,
   getInvitedMeshes,
   inviteUsers,
   leaveMesh,

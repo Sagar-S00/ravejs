@@ -440,23 +440,43 @@ export class RaveBot {
      * @returns Message ID that was sent
      */
     if (this.client) {
-      // Send message and get the ID we sent
-      const sentMessageId = await this.client.sendChatMessage(text, undefined, replyTo, media, userMetas);
-      // Track the message ID we sent immediately
-      if (sentMessageId) {
-        this.botMessageIds.add(sentMessageId);
-        // Also track message content for fallback matching
-        this.recentBotMessages.push({
-          id: sentMessageId,
-          content: text,
-          timestamp: Date.now()
-        });
-        // Keep only last 50 messages
-        if (this.recentBotMessages.length > 50) {
-          this.recentBotMessages.shift();
+      try {
+        // Send typing state (start typing)
+        await this.client.sendTypingState(true);
+        
+        // Wait 1 second before sending message
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Send message and get the ID we sent
+        const sentMessageId = await this.client.sendChatMessage(text, undefined, replyTo, media, userMetas);
+        
+        // Stop typing state
+        await this.client.sendTypingState(false);
+        
+        // Track the message ID we sent immediately
+        if (sentMessageId) {
+          this.botMessageIds.add(sentMessageId);
+          // Also track message content for fallback matching
+          this.recentBotMessages.push({
+            id: sentMessageId,
+            content: text,
+            timestamp: Date.now()
+          });
+          // Keep only last 50 messages
+          if (this.recentBotMessages.length > 50) {
+            this.recentBotMessages.shift();
+          }
         }
+        return sentMessageId;
+      } catch (error: any) {
+        // Ensure typing state is stopped even if there's an error
+        try {
+          await this.client.sendTypingState(false);
+        } catch {
+          // Ignore errors when stopping typing state
+        }
+        throw error;
       }
-      return sentMessageId;
     }
     return undefined;
   }
