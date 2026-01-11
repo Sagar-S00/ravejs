@@ -180,10 +180,10 @@ async function main() {
           console.log('\n✓ Credentials saved to file (tokens stripped)\n');
         }
 
-        // Use new credentials
-        deviceId = loginResult.deviceId;
-        authToken = loginResult.authToken || loginResult.parseToken || "";
-        peerId = loginResult.peerId || "unknown_peer";
+        // Use new credentials (use stripped tokens from newCredentials, not from loginResult)
+        deviceId = newCredentials.deviceId;
+        authToken = newCredentials.authToken || "";
+        peerId = newCredentials.peerId || "unknown_peer";
       } catch (error: any) {
         console.error(`\n✗ Login failed: ${error.message}`);
         process.exit(1);
