@@ -217,7 +217,7 @@ async function main() {
       deviceId,
       peerId,
       authToken,
-      commandPrefix: ["'"], // Multiple command prefixes
+      commandPrefix: ["!", "?", "~", "+", "'"], // Multiple command prefixes
       debug: true, // Enable debug mode
       maxProcesses: Infinity, // Unlimited processes
       statusPollInterval: 30, // Poll every 30 seconds
