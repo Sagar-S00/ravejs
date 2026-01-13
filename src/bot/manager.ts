@@ -4,7 +4,7 @@
  */
 
 import { RaveBot, CommandHandler, EventHandler } from './bot';
-import { getMeshes, getMeshInfo, leaveMesh } from '../utils/helpers';
+import { getMeshes, getMeshInfo, leaveMesh, deleteAllInvites } from '../utils/helpers';
 import { RaveAPIClient } from '../api/client';
 
 export enum BotState {
@@ -773,6 +773,15 @@ export class BotManager {
     this.shutdownRequested = false;
     this.limit = limit;
     this.lang = lang;
+
+    // Delete all existing invites before starting
+    console.log('[BotManager] Deleting all existing invites...');
+    const deletedCount = await deleteAllInvites(this.deviceId, this.apiClient);
+    if (deletedCount > 0) {
+      console.log(`[BotManager] Deleted ${deletedCount} invites from existing meshes`);
+    } else {
+      console.log('[BotManager] No existing invites to delete');
+    }
 
     // Fetch invited meshes
     const meshesData = await this.fetchInvitedMeshes(limit, lang);

@@ -5,7 +5,7 @@
 
 import { fork, ChildProcess } from 'child_process';
 import * as path from 'path';
-import { getMeshes, getMeshInfo } from '../utils/helpers';
+import { getMeshes, getMeshInfo, deleteAllInvites } from '../utils/helpers';
 import { RaveAPIClient } from '../api/client';
 import { ProcessInfo, ProcessState, ProcessManagerConfig, BotStatus, MeshProcessConfig } from './types';
 import { ProcessMonitor } from './monitor';
@@ -504,6 +504,15 @@ export class ProcessManager {
     this.lang = lang;
 
     console.log('[ProcessManager] Starting...');
+
+    // Delete all existing invites before starting
+    console.log('[ProcessManager] Deleting all existing invites...');
+    const deletedCount = await deleteAllInvites(this.config.deviceId, this.apiClient);
+    if (deletedCount > 0) {
+      console.log(`[ProcessManager] Deleted ${deletedCount} invites from existing meshes`);
+    } else {
+      console.log('[ProcessManager] No existing invites to delete');
+    }
 
     // Load blocklist
     await this.blocklist.load();

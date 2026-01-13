@@ -420,6 +420,124 @@ export async function inviteUsers(
 }
 
 /**
+ * Delete invite from a mesh (without leaving)
+ * 
+ * @param meshId - Mesh ID to delete invite from
+ * @param apiClient - Optional API client instance (uses default if not provided)
+ * @returns True if successful, False otherwise
+ */
+export async function deleteInvite(
+  meshId: string,
+  apiClient?: RaveAPIClient
+): Promise<boolean> {
+  const client = apiClient || getDefaultApiClient();
+
+  try {
+    const deleteInviteResponse = await client.delete(`/meshes/${meshId}/invites`);
+    if (deleteInviteResponse.status === 200 || deleteInviteResponse.status === 204) {
+      return true;
+    } else {
+      console.warn(`Failed to delete invite from mesh ${meshId}: ${deleteInviteResponse.status}`);
+      return false;
+    }
+  } catch (error: any) {
+    console.error(`Error deleting invite from mesh ${meshId}:`, error.message);
+    return false;
+  }
+}
+
+/**
+ * Delete all invites from all meshes the bot is invited to
+ * 
+ * @param deviceId - Device ID (required)
+ * @param apiClient - Optional API client instance (uses default if not provided)
+ * @returns Number of invites deleted
+ */
+export async function deleteAllInvites(
+  deviceId: string,
+  apiClient?: RaveAPIClient
+): Promise<number> {
+  const client = apiClient || getDefaultApiClient();
+  
+  try {
+    // Get all invited meshes
+    let cursor: string | undefined = undefined;
+    let hasMore = true;
+    const allMeshIds: string[] = [];
+
+    while (hasMore) {
+      const meshesResponse = await getMeshesWithFilters(
+        deviceId,
+        {
+          public: false,
+          friends: false,
+          local: false,
+          invited: true,
+          limit: 50,
+          lang: "en",
+          cursor: cursor
+        },
+        client
+      );
+
+      const meshesData = meshesResponse.data || [];
+
+      // Extract mesh IDs
+      for (const meshData of meshesData) {
+        const mesh = meshData.mesh || {};
+        const meshId = mesh.id;
+        if (meshId) {
+          allMeshIds.push(meshId);
+        }
+      }
+
+      // Check for next page
+      const paging = meshesResponse.paging || {};
+      if (paging.next) {
+        try {
+          const url = new URL(paging.next);
+          cursor = url.searchParams.get('cursor') || undefined;
+          hasMore = !!cursor;
+        } catch {
+          hasMore = false;
+        }
+      } else {
+        hasMore = false;
+      }
+
+      // Small delay to avoid rate limiting
+      if (hasMore) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+
+    if (allMeshIds.length === 0) {
+      return 0;
+    }
+
+    // Delete invites from all meshes
+    let deletedCount = 0;
+    for (const meshId of allMeshIds) {
+      try {
+        const success = await deleteInvite(meshId, client);
+        if (success) {
+          deletedCount++;
+        }
+        // Small delay between deletions
+        await new Promise(resolve => setTimeout(resolve, 200));
+      } catch (error: any) {
+        console.error(`Error deleting invite from ${meshId.substring(0, 8)}...: ${error.message}`);
+      }
+    }
+
+    return deletedCount;
+  } catch (error: any) {
+    console.error(`Error deleting all invites: ${error.message}`);
+    return 0;
+  }
+}
+
+/**
  * Leave a mesh
  * 
  * This function performs two operations:

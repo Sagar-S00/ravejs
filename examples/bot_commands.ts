@@ -57,6 +57,13 @@ export function registerCommands(manager: BotManager): void {
 
     if (videoInfo) {
       const roomId = bot.roomId;
+      
+      // Check if authToken is available
+      if (!bot.authToken || bot.authToken.trim() === '') {
+        await ctx.reply(`❌ No authentication token available. Please use \`${bot.commandPrefixes.join(", ")[0]}relogin\` to authenticate.`);
+        return;
+      }
+      
       // Create authenticated API client
       const apiClient = new RaveAPIClient("https://api.red.wemesh.ca", bot.authToken);
 
@@ -66,8 +73,7 @@ export function registerCommands(manager: BotManager): void {
         await voteVideo(videoId, roomId, bot.deviceId, apiClient);
         await ctx.reply(`✅ Video set: ${videoInfo.title || "Unknown"}`);
       } catch (error: any) {
-        console.error(`Error setting video:`, error);
-        await ctx.reply(`❌ Failed to set video: ${error.message}`);
+        await ctx.reply(`❌ Failed to set video: ${error.message || "Unknown error"}`);
       }
     } else {
       await ctx.reply("❌ No video found for this message. Make sure you're replying to a search result.");
@@ -202,6 +208,13 @@ export function registerBotCommands(bot: RaveBot): void {
 
     if (videoInfo) {
       const roomId = ctx.bot.roomId;
+      
+      // Check if authToken is available
+      if (!ctx.bot.authToken || ctx.bot.authToken.trim() === '') {
+        await ctx.reply(`❌ No authentication token available. Please use \`${ctx.bot.commandPrefixes[0]}relogin\` to authenticate.`);
+        return;
+      }
+      
       // Create authenticated API client
       const apiClient = new RaveAPIClient("https://api.red.wemesh.ca", ctx.bot.authToken);
 
@@ -210,8 +223,7 @@ export function registerBotCommands(bot: RaveBot): void {
         await voteVideo(videoId, roomId, ctx.bot.deviceId, apiClient);
         await ctx.reply(`✅ Video set: ${videoInfo.title || "Unknown"}`);
       } catch (error: any) {
-        console.error(`Error setting video:`, error);
-        await ctx.reply(`❌ Failed to set video: ${error.message}`);
+        await ctx.reply(`❌ Failed to set video: ${error.message || "Unknown error"}`);
       }
     } else {
       await ctx.reply("❌ No video found for this message. Make sure you're replying to a search result.");

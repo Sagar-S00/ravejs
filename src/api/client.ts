@@ -19,7 +19,7 @@ export class RaveAPIClient {
   // Secret key for HMAC-SHA256 hash generation (from RequestHasher.java)
   private static readonly SECRET_KEY = "c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2";
 
-  private baseUrl: string;
+  private _baseUrl: string;
   private authToken: string;
   private clientVersion: string;
   private apiVersion: string;
@@ -48,7 +48,7 @@ export class RaveAPIClient {
      * @param userAgent - User-Agent string
      * @param ssaid - SSaid header value
      */
-    this.baseUrl = baseUrl.replace(/\/+$/, ''); // Remove trailing slashes
+    this._baseUrl = baseUrl.replace(/\/+$/, ''); // Remove trailing slashes
     this.authToken = authToken;
     this.clientVersion = clientVersion;
     this.apiVersion = apiVersion;
@@ -124,15 +124,39 @@ export class RaveAPIClient {
     customHeaders?: Record<string, string>
   ): Record<string, string> {
     // Calculate content length
-    // Must match exactly what axios sends when using JSON
+    // If payload is already a string (serialized JSON), use its length directly
+    // Otherwise serialize it (for objects) or convert to string
     let contentLength = 0;
     if (payload !== undefined && payload !== null) {
-      if (typeof payload === 'object') {
-        contentLength = JSON.stringify(payload).length;
+      if (typeof payload === 'string') {
+        // Already serialized - use byte length for accuracy
+        contentLength = Buffer.byteLength(payload, 'utf8');
+      } else if (typeof payload === 'object') {
+        // Use byte length to match exactly what will be sent over the wire
+        contentLength = Buffer.byteLength(JSON.stringify(payload), 'utf8');
       } else {
-        contentLength = String(payload).length;
+        contentLength = Buffer.byteLength(String(payload), 'utf8');
       }
     }
+    
+    return this.buildHeadersWithContentLength(method, contentLength, payload, customHeaders);
+  }
+
+  /**
+   * Build request headers with a pre-calculated content length
+   * 
+   * @param method - HTTP method (GET, POST, DELETE, etc.)
+   * @param contentLength - Pre-calculated content length in bytes
+   * @param payload - Request payload (for Content-Type detection)
+   * @param customHeaders - Additional custom headers to include
+   * @returns Dictionary of headers
+   */
+  private buildHeadersWithContentLength(
+    method: string,
+    contentLength: number,
+    payload?: any,
+    customHeaders?: Record<string, string>
+  ): Record<string, string> {
 
     // Normalize token (remove "r:" prefix if present)
     const normalizedToken = this.normalizeToken(this.authToken);
@@ -142,7 +166,7 @@ export class RaveAPIClient {
     const requestHash = this.generateRequestHash(timestamp, normalizedToken, contentLength);
 
     // Extract host from base URL
-    const host = this.baseUrl.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    const host = this._baseUrl.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
 
     // Build base headers (use normalized token in Authorization header)
     const headers: Record<string, string> = {
@@ -186,7 +210,7 @@ export class RaveAPIClient {
     headers?: Record<string, string>,
     timeout: number = 15
   ): Promise<AxiosResponse> {
-    const url = `${this.baseUrl}${endpoint}`;
+    const url = `${this._baseUrl}${endpoint}`;
     const requestHeaders = this.buildHeaders("GET", undefined, headers);
 
     const config: AxiosRequestConfig = {
@@ -197,6 +221,13 @@ export class RaveAPIClient {
 
     const response = await this.session.get(url, config);
     return response;
+  }
+
+  /**
+   * Get the base URL (for logging/debugging)
+   */
+  get baseUrl(): string {
+    return this._baseUrl;
   }
 
   /**
@@ -214,14 +245,30 @@ export class RaveAPIClient {
     headers?: Record<string, string>,
     timeout: number = 15
   ): Promise<AxiosResponse> {
-    const url = `${this.baseUrl}${endpoint}`;
-    const requestHeaders = this.buildHeaders("POST", payload, headers);
+    const url = `${this._baseUrl}${endpoint}`;
+    
+    // Calculate content length using Buffer.byteLength to match exactly what will be sent
+    // This is critical - the hash must use the exact byte length of the JSON string
+    let contentLengthForHash = 0;
+    if (payload !== undefined && payload !== null) {
+      if (typeof payload === 'object') {
+        // Serialize and get byte length - this must match what axios sends
+        const jsonString = JSON.stringify(payload);
+        contentLengthForHash = Buffer.byteLength(jsonString, 'utf8');
+      } else {
+        contentLengthForHash = Buffer.byteLength(String(payload), 'utf8');
+      }
+    }
+    
+    // Build headers with the pre-calculated content length
+    const requestHeaders = this.buildHeadersWithContentLength("POST", contentLengthForHash, payload, headers);
 
     const config: AxiosRequestConfig = {
       headers: requestHeaders,
       timeout: timeout * 1000
     };
 
+    // Pass the object to axios - it will serialize using JSON.stringify internally
     const response = await this.session.post(url, payload, config);
     return response;
   }
@@ -241,7 +288,7 @@ export class RaveAPIClient {
     headers?: Record<string, string>,
     timeout: number = 15
   ): Promise<AxiosResponse> {
-    const url = `${this.baseUrl}${endpoint}`;
+    const url = `${this._baseUrl}${endpoint}`;
     const requestHeaders = this.buildHeaders("PUT", payload, headers);
 
     const config: AxiosRequestConfig = {
@@ -268,7 +315,7 @@ export class RaveAPIClient {
     headers?: Record<string, string>,
     timeout: number = 15
   ): Promise<AxiosResponse> {
-    const url = `${this.baseUrl}${endpoint}`;
+    const url = `${this._baseUrl}${endpoint}`;
     const requestHeaders = this.buildHeaders("DELETE", undefined, headers);
 
     const config: AxiosRequestConfig = {
@@ -296,7 +343,7 @@ export class RaveAPIClient {
     headers?: Record<string, string>,
     timeout: number = 15
   ): Promise<AxiosResponse> {
-    const url = `${this.baseUrl}${endpoint}`;
+    const url = `${this._baseUrl}${endpoint}`;
     const requestHeaders = this.buildHeaders("PATCH", payload, headers);
 
     const config: AxiosRequestConfig = {
